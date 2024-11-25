@@ -1,181 +1,40 @@
 
-  
-
-  
-
 # BigBlueButton Exporter
 
-  
-
-  
-
-Server-side version of the script that enables users to download BigBlueButton recordings as a single video file.
-
-  
-
-  
+Client-side version of the script that enables users to download BigBlueButton 2.3 recordings as a single video file.
 
 ## What's supported?
 
-The script was developed for BigBlueButton versions ranging from 2.3 to 2.5.
-
-  
-
 ✅ Annotations <br  />
-
-  
-
-✅ Captions <br  />
-
-  
-
-✅ Chapters <br  />
-
-  
-
-✅ Chat (with an option to anonymize names) <br  />
-
-  
-
+✅ Chat <br  />
 ✅ Cursor <br  />
-
-  
-
-✅ Integration with Greenlight <br  />
-
-  
-
 ✅ Polls <br  />
-
-  
-
 ✅ Screen shares <br  />
-
-  
-
 ✅ Slides<br  />
-
-  
-
 ✅ Text <br  />
-
-  
-
 ✅ Webcams <br  />
-
-  
-
 ✅ Zooms <br  />
 
-  
+## Client Side Usage
 
-  
-
-![BigBlueButton recording exporter](/demo/export_example.png)
-
-  
-
-  
-
-## Server-Side Usage
-
-Install the prerequisites (the following packages and RubyGems need to be installed on a BBB v2.5.x server running Ubuntu 20.04):
-
-```shell
-sudo apt-get install libsystemd-dev ruby-dev
-sudo gem install builder optimist loofah nokogiri redis journald-logger open4 absolute_time
+```bash
+ruby presentation.rb -h <recording hostname> -m <meeting-id> -f <output video filename>
 ```
-  
-
-Place the file `presentation.rb` in the `/usr/local/bigbluebutton/core/scripts/post_publish` directory with executable rights.
-
-Do the same for the file `lib/interval_tree.rb`, moving it to `/usr/local/bigbluebutton/core/lib/recordandplayback`.
-
-  
-
-After a session is over and the presentation is processed, the script will begin to export the recording as a single video file. It can be accessed and downloaded at https://`your.bbb.hostname`/presentation/`meeting-id`/meeting.mp4 once rendering completes, or directly in the Greenlight interface.
-
-  
-
-The meeting's ID is the alphanumeric string following the 2.3 in the recording's URL.
-
-  
-
-Existing recordings can be re-rendered by running the exporting script on an individual basis:
-
-  
-
-    ./presentation.rb -m <meeting_id> -f presentation
-
-  
-
-Note that this will stop automatic exports unless executed with the `bigbluebutton` user! See the "Troubleshooting" section below.
-
-  
-
-Alternatively,
-
-    bbb-record --rebuild <meeting_id>
-
-  
-
-will rebuild the entire recording (including the playback in the browser).
-
-  
-
-To re-render all existing recordings, run
-
-  
-
-    bbb-record --rebuildall
-
-  
-
-If you do not have access to a BBB server, check out the branch 'client-side'.
-
-  
-
-For caption support, recompile FFmpeg with the `movtext` encoder enabled and uncomment the `add_captions` method.
-
-  
-
-The chat component can be disabled by turning `HIDE_CHAT` on. If you want to keep the messages but anonymize the names, set `HIDE_CHAT_NAMES` to true.
-
-  
 
 ### Requirements
 
-  
+FFmpeg compiled with `--enable-librsvg` and `--enable-libx264` <br  />
 
-Root access to a BBB 2.3 server.
+Install the necessary gems with `bundle install`. <br  />
 
-  
-
-### Rendering options
-
-If your server supports animated strokes on the whiteboard, set the flag `REMOVE_REDUNDANT_SHAPES` to **true** in `presentation.rb`.
-
-  
+###  Rendering options 
+If your server runs BBB 2.2 or earlier, it is advised to set the flag `REMOVE_REDUNDANT_SHAPES` to **true** in `export_presentation.rb`. This will ensure the live whiteboard feature is still supported, require less storage space and increase rendering speeds.
 
 Less data can be written on the disk by turning `SVGZ_COMPRESSION` on.
 
-  
+To make rendering faster and less resource-intensive, download FFMpeg's source code and replace the file `ffmpeg/libavcodec/librsvgdec.c` with the one in this directory. After compiling and installing FFMpeg, enable `FFMPEG_REFERENCE_SUPPORT` in `export_presentation.rb` .
 
-To make rendering less resource-intensive, download FFMpeg's source code and replace the file `ffmpeg/libavcodec/librsvgdec.c` with the one in this directory. After compiling and installing FFMpeg, enable `FFMPEG_REFERENCE_SUPPORT` in `presentation.rb` . [Steps by @felcaetano](https://github.com/danielpetri1/bbb-recording-exporter/issues/44#issuecomment-904464887).
-
-  
-
-The video output quality can be controlled with `CONSTANT_RATE_FACTOR`.
-
-  
-
-### Troubleshooting
-
-  
-
-Exports don't start after the meeting ends: `/var/log/bigbluebutton/post_publish.log` and `/var/bigbluebutton/published/video/` must be chowned to `bigbluebutton:bigbluebutton`
-
-  
+The video output quality can be controlled with the `CONSTANT_RATE_FACTOR`.
 
 ### License
 

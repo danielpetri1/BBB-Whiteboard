@@ -9,3 +9,5 @@
 !.rubocop.yml
 !librsvgdec.c
 !presentation.rb
+!Gemfile
+!Gemfile.lock

@@ -1,0 +1,11 @@
+source 'https://rubygems.org'
+
+gem 'builder', '~> 3.3.0'
+gem 'csv', '~> 3.3.0'
+gem 'loofah', '~> 2.23.1'
+gem 'nokogiri', '~> 1.16.7'
+gem 'optimist', '~> 3.2.0'
+gem 'yaml', '~> 0.4.0'
+gem 'json', '~> 2.8.2'
+gem 'zlib', '~> 3.2.0'
+gem 'base64', '~> 0.2.0'

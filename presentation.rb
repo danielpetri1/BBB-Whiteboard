@@ -12,34 +12,100 @@ require 'loofah'
 require 'nokogiri'
 require 'optimist'
 require 'yaml'
+require 'zlib'
+require 'nokogiri'
+require 'open-uri'
+require 'cgi'
+require 'fileutils'
+require 'json'
 
-require File.expand_path('../../../lib/recordandplayback', __FILE__)
-require File.expand_path('../../../lib/recordandplayback/interval_tree', __FILE__)
-
+require_relative "lib/interval_tree"
 include IntervalTree
 
 opts = Optimist.options do
-  opt :meeting_id, 'Meeting id to archive', type: String
-  opt :format, 'Playback format name', type: String
-  opt :log_stdout, 'Log to STDOUT', type: :flag
+  opt :hostname, "The recording's base URL", type: String
+  opt :meeting_id, "Meeting id to archive", type: String
+  opt :filename, "The filename of the output video", type: String
 end
 
-meeting_id = opts[:meeting_id]
-playback = opts[:format]
+@meeting_id = opts[:meeting_id]
+@hostname = opts[:hostname]
+@filename = opts[:filename]
 
-exit(0) if playback != 'presentation'
+if @meeting_id.nil? then
+    puts "Missing meeting ID. Please specify with -m <meetingID>."
+    exit(0)
+end
 
-logger = opts[:log_stdout] ? Logger.new($stdout) : Logger.new('/var/log/bigbluebutton/post_publish.log', 'weekly')
-logger.level = Logger::INFO
-BigBlueButton.logger = logger
+if @hostname.nil? then
+    puts "Missing hostname. Please specify with -h <hostname>."
+    exit(0)
+end
 
-BigBlueButton.logger.info("Started exporting presentation for [#{meeting_id}]")
+if @filename.nil? then
+    @filename = "meeting"
+end
 
-@published_files = "/var/bigbluebutton/published/presentation/#{meeting_id}"
+puts "Started exporting presentation for [#{@meeting_id}]"
+
+@published_files = File.expand_path(".")
 
 # Creates scratch directories
-FileUtils.mkdir_p(["#{@published_files}/chats", "#{@published_files}/cursor", "#{@published_files}/frames",
-                   "#{@published_files}/timestamps", "/var/bigbluebutton/published/video/#{meeting_id}"])
+FileUtils.mkdir_p(["#{@published_files}/chats",
+                   "#{@published_files}/cursor",
+                   "#{@published_files}/frames",
+                   "#{@published_files}/timestamps",
+                   "#{@published_files}/video",
+                   "#{@published_files}/deskshare"])
+
+def download(file)
+    path = "https://#{@hostname}/presentation/#{@meeting_id}/#{file}"
+    puts "Downloading #{path}"
+
+    begin
+        File.open(file, 'wb') do |get|
+        get << URI.parse(path.to_s).open(&:read)
+        end
+    rescue OpenURI::HTTPError
+        puts "Failed to get: #{file}"
+    end
+end
+
+# Downloads the recording's assets
+['shapes.svg',
+  'cursor.xml',
+  'panzooms.xml',
+  'presentation_text.json',
+  'captions.json',
+  'metadata.xml',
+  'video/webcams.mp4',
+  'video/webcams.webm',
+  'deskshare/deskshare.mp4',
+  'deskshare/deskshare.webm',
+  'slides_new.xml'].each do |get|
+    download(get)
+end
+
+# Opens shapes.svg
+@doc = Nokogiri::XML(File.open('shapes.svg'))
+
+slides = @doc.xpath('//xmlns:image', 'xmlns' => 'http://www.w3.org/2000/svg', 'xlink' => 'http://www.w3.org/1999/xlink')
+
+# Download all captions
+    json = JSON.parse(File.read('captions.json'))
+
+    (0..json.length - 1).each do |i|
+    download "caption_#{json[i]['locale']}.vtt"
+    end
+
+    # Downloads each slide
+    slides.each do |img|
+    path = File.dirname(img.attr('xlink:href'))
+
+    # Creates folder structure if it's not yet present
+    FileUtils.mkdir_p(path) unless File.directory?(path)
+    download(img.attr('xlink:href'))
+end
 
 TEMPORARY_FILES_PERMISSION = 0o600
 
@@ -113,7 +179,7 @@ WhiteboardElement = Struct.new(:begin, :end, :value, :id)
 WhiteboardSlide = Struct.new(:href, :begin, :end, :width, :height)
 
 def run_command(command, silent = false)
-  BigBlueButton.logger.info("Running: #{command}") unless silent
+  puts "Running: #{command}" unless silent
   output = `#{command}`
   [$CHILD_STATUS.success?, output]
 end
@@ -195,21 +261,6 @@ def add_chapters(duration, slides)
   else
     warn('Failed to add the chapters to the video.')
     exit(false)
-  end
-end
-
-def add_greenlight_buttons(metadata)
-  bbb_props = File.open(File.join(__dir__, '../bigbluebutton.yml')) { |f| YAML.safe_load(f) }
-  playback_protocol = bbb_props['playback_protocol']
-  playback_host = bbb_props['playback_host']
-
-  meeting_id = metadata.xpath('recording/id').inner_text
-
-  metadata.xpath('recording/playback/format').children.first.content = 'video'
-  metadata.xpath('recording/playback/link').children.first.content = "#{playback_protocol}://#{playback_host}/presentation/#{meeting_id}/meeting.mp4"
-
-  File.open("/var/bigbluebutton/published/video/#{meeting_id}/metadata.xml", 'w') do |file|
-    file.write(metadata)
   end
 end
 
@@ -673,7 +724,8 @@ end
 
 def render_video(duration, meeting_name)
   # Determine if video had screensharing / chat messages
-  deskshare = !HIDE_DESKSHARE && File.file?("#{@published_files}/deskshare/deskshare.#{VIDEO_EXTENSION}")
+  deskshare_file = "#{@published_files}/deskshare/deskshare.#{VIDEO_EXTENSION}"
+  deskshare = !HIDE_DESKSHARE && File.file?(deskshare_file) && !File.zero?(deskshare_file)
   chat = !HIDE_CHAT && File.file?("#{@published_files}/chats/chat.svg")
 
   render = "ffmpeg -f lavfi -i color=c=#{BACKGROUND_COLOR}:s=#{OUTPUT_WIDTH}x#{OUTPUT_HEIGHT} " \
@@ -856,26 +908,38 @@ def export_presentation
   render_cursor(panzooms, Nokogiri::XML::Reader(File.open("#{@published_files}/cursor.xml")))
   render_whiteboard(panzooms, slides, shapes, timestamps)
 
-  BigBlueButton.logger.info("Finished composing presentation. Time: #{Time.now - start}")
+  puts "Finished composing presentation. Time: #{Time.now - start}"
 
   start = Time.now
-  BigBlueButton.logger.info('Starting to export video')
+  puts "Starting to export video"
 
   render_video(duration, meeting_name)
   add_chapters(duration, slides)
   add_captions if CAPTION_SUPPORT
 
-  FileUtils.mv("#{@published_files}/meeting-tmp.mp4", "#{@published_files}/meeting.mp4")
-  BigBlueButton.logger.info("Exported recording available at #{@published_files}/meeting.mp4. Rendering took: #{Time.now - start}")
-
-  add_greenlight_buttons(metadata)
+  FileUtils.mv("#{@published_files}/meeting-tmp.mp4", "#{@published_files}/#{@filename}.mp4")
+  puts "Exported recording available at #{@published_files}/#{@filename}.mp4. Rendering took: #{Time.now - start} seconds."
 end
 
 export_presentation
 
 # Delete the contents of the scratch directories
-FileUtils.rm_rf(["#{@published_files}/chats", "#{@published_files}/cursor", "#{@published_files}/frames",
-                 "#{@published_files}/timestamps", "#{@published_files}/shapes_modified.svg",
-                 "#{@published_files}/meeting_metadata"])
+FileUtils.rm_rf(["#{@published_files}/chats",
+                 "#{@published_files}/cursor",
+                 "#{@published_files}/frames",
+                 "#{@published_files}/timestamps",
+                 "#{@published_files}/shapes_modified.svg",
+                 "#{@published_files}/meeting_metadata",
+                 "#{@published_files}/captions.json",
+                 "#{@published_files}/cursor.xml",
+                 "#{@published_files}/deskshare",
+                 "#{@published_files}/video",
+                 "#{@published_files}/metadata.xml",
+                 "#{@published_files}/panzooms.xml",
+                 "#{@published_files}/presentation_text.json",
+                 "#{@published_files}/shapes.svg",
+                 "#{@published_files}/shapes",
+                 "#{@published_files}/presentation"
+                ])
 
 exit(0)
