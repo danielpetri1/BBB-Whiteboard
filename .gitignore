@@ -3,14 +3,9 @@
 !.gitignore
 !README.md
 !LICENSE
-!video/
-!deskshare/
 !demo/
-!presentation/
-!deskshare/
 !lib/interval_tree.rb
-!download_client.rb
-!export_presentation.rb
+!presentation.rb
 !.rubocop.yml
 !librsvgdec.c
 !presentation.rb

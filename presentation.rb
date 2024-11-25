@@ -35,7 +35,7 @@ BigBlueButton.logger = logger
 
 BigBlueButton.logger.info("Started exporting presentation for [#{meeting_id}]")
 
-@published_files = File.expand_path(".")
+@published_files = "/var/bigbluebutton/published/presentation/#{meeting_id}"
 
 # Creates scratch directories
 FileUtils.mkdir_p(["#{@published_files}/chats", "#{@published_files}/cursor", "#{@published_files}/frames",
