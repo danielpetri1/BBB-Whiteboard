@@ -13,3 +13,4 @@
 !export_presentation.rb
 !.rubocop.yml
 !librsvgdec.c
+!presentation.rb
